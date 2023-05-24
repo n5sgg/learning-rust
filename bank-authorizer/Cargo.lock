@@ -25,6 +25,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "time",
+ "time-macros",
 ]
 
 [[package]]
