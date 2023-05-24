@@ -27,31 +27,37 @@ pub enum Record {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct AccountLog(Vec<Account>);
+enum State {
+    Inactive,
+    Active,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AccountLog {
+    log: Vec<Account>,
+    state: State,
+}
 
 impl AccountLog {
     pub fn new() -> Self {
-        AccountLog(Vec::new())
+        AccountLog { state: State::Inactive, log: Vec::new() }
     }
 
-    pub fn process(&mut self, data: Record) {
-        if let Some(acc) = self.0.last() {
-            match data {
-                Record::Transaction(tx) => {
-                    if acc.available_limit >= tx.amount {
-                        self.0.push(Account {
-                            active_card: acc.active_card,
-                            available_limit: acc.available_limit - tx.amount,
-                        })
-                    }
+    pub fn process(&mut self, record: Record) {
+        match (&self.state, record) {
+            (State::Inactive, Record::Account(acc @ Account { active_card: true, .. })) => {
+                self.log.push(acc);
+                self.state = State::Active;
+            }
+            (State::Active, Record::Transaction(tx)) => {
+                let curr: &Account = self.log.last().unwrap(); // this is safe because the state is only active after pushing the first record to the log.
+                if curr.available_limit >= tx.amount {
+                    self.log.push(Account{active_card: curr.active_card, available_limit: curr.available_limit-tx.amount})
                 }
-                Record::Account(_) => (),
-            }
-        } else {
-            match data {
-                Record::Account(acc) => self.0.push(acc),
-                Record::Transaction(_) => (),
-            }
+            },
+            (State::Inactive, Record::Account(acc @ Account{ active_card: false, .. })) => self.log.push(acc),
+            (State::Inactive, Record::Transaction(_)) => (),
+            (State::Active, Record::Account(_)) => (),
         }
     }
 }
@@ -90,7 +96,7 @@ mod tests {
     fn test_accountlog_process() {
         let mut acclog = AccountLog::new();
         acclog.process(Record::Account(Account {
-            active_card: false,
+            active_card: true,
             available_limit: 100,
         }));
         acclog.process(Record::Transaction(Transaction {
@@ -100,14 +106,14 @@ mod tests {
         }));
         let exp = vec![
             Account {
-                active_card: false,
+                active_card: true,
                 available_limit: 100,
             },
             Account {
-                active_card: false,
+                active_card: true,
                 available_limit: 80,
             },
         ];
-        assert_eq!(acclog.0, exp);
+        assert_eq!(acclog.log, exp);
     }
 }
