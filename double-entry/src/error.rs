@@ -7,7 +7,7 @@ pub enum Result {
     CardNotIssued,
     CardInactive,
     BookAccountNonExistent,
-    // DoubleTransaction,
+    DoubleTransaction,
     // HighFrequencySmallInterval,
 }
 
@@ -20,7 +20,7 @@ impl fmt::Display for Result {
             Result::CardNotIssued => write!(f, "card_not_issued"),
             Result::CardInactive => write!(f, "card_inactive"),
             Result::BookAccountNonExistent => write!(f, "book_acount_nonexistent"),
-            // Result::DoubleTransaction => write!(f, "doubled_transaction"),
+            Result::DoubleTransaction => write!(f, "doubled_transaction"),
             // Result::HighFrequencySmallInterval => write!(f, "high-frequency-small-interval"),
         }
     }

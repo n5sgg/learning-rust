@@ -333,8 +333,17 @@ impl Ledger {
                 if balance < amount {
                     return Err(error::Result::InsufficientLimit);
                 }
-
+                
                 let entries = Purchase::new(merchant, amount);
+                match self.journal.last() {
+                    Some(last_journal_entry) => {
+                        let purchase_entry = entries.last().unwrap();
+                        if last_journal_entry.merchant == purchase_entry.merchant && last_journal_entry.amount == purchase_entry.amount {
+                            return Err(error::Result::DoubleTransaction);
+                        }
+                    },
+                    None => (),
+                };
                 self.process(entries)?;
 
                 Ok(())
