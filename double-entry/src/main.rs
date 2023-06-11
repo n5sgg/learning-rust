@@ -2,6 +2,7 @@ use rust_decimal_macros::dec;
 
 mod error;
 mod ledger;
+mod movement;
 
 fn main() -> Result<(), error::Result> {
     let mut ledger = ledger::Ledger::new();

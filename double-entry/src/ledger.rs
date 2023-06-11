@@ -5,16 +5,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error;
-
-const INTERCHANGE_FEE: Decimal = dec!(0.02);
-
-#[allow(dead_code)]
-#[derive(Debug, PartialEq, Eq)]
-pub struct AccountInfo {
-    amount: Decimal,
-    version: u32,
-    off_balance: bool,
-}
+use crate::movement;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum BookAccount {
@@ -29,129 +20,27 @@ pub enum BookAccount {
     EquityInterchange,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct AccountInfo {
+    amount: Decimal,
+    version: u32,
+    off_balance: bool,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Entry {
-    id: Uuid,
-    amount: Decimal, // always positive
-    debit_account: BookAccount,
-    credit_account: BookAccount,
-    post_date: OffsetDateTime, // the day the entry actually ocurred
-    merchant: Option<String>,
+    pub id: Uuid,
+    pub amount: Decimal, // always positive
+    pub debit_account: BookAccount,
+    pub credit_account: BookAccount,
+    pub post_date: OffsetDateTime, // the day the entry actually ocurred
+    pub merchant: Option<String>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct CardIssued;
-
-impl CardIssued {
-    pub fn new(max_limit: Decimal) -> Vec<Entry> {
-        let now = OffsetDateTime::now_utc();
-        let id = Uuid::new_v4();
-
-        vec![
-            Entry {
-                id,
-                debit_account: BookAccount::AssetMaxCurrentLimit,
-                credit_account: BookAccount::LiabilityMaxCurrentLimitCp,
-                amount: max_limit,
-                post_date: now,
-                merchant: None,
-            },
-            Entry {
-                id,
-                debit_account: BookAccount::AssetCurrentLimit,
-                credit_account: BookAccount::LiabilityCurrentLimitCp,
-                amount: max_limit,
-                post_date: now,
-                merchant: None,
-            },
-        ]
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Purchase;
-
-impl Purchase {
-    pub fn new(merchant: String, amount: Decimal) -> Vec<Entry> {
-        let now = OffsetDateTime::now_utc();
-        let id = Uuid::new_v4();
-        let interchange: Decimal = (amount * INTERCHANGE_FEE).round_dp(2);
-
-        vec![
-            Entry {
-                id,
-                debit_account: BookAccount::AssetSettled,
-                credit_account: BookAccount::LiabilityPayable,
-                amount: amount,
-                post_date: now,
-                merchant: Some(merchant.to_string()),
-            },
-            Entry {
-                id,
-                debit_account: BookAccount::LiabilityPayable,
-                credit_account: BookAccount::EquityInterchange,
-                amount: interchange,
-                post_date: now,
-                merchant: Some(merchant.to_string()),
-            },
-            Entry {
-                id,
-                debit_account: BookAccount::LiabilityCurrentLimitCp,
-                credit_account: BookAccount::AssetCurrentLimit,
-                amount: amount,
-                post_date: now,
-                merchant: Some(merchant.to_string()),
-            },
-        ]
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct ClosedBill;
-
-impl ClosedBill {
-    pub fn new(closed_amount: Decimal) -> Vec<Entry> {
-        let now = OffsetDateTime::now_utc();
-        let id = Uuid::new_v4();
-
-        vec![Entry {
-            id,
-            debit_account: BookAccount::LiabilityReceivable,
-            credit_account: BookAccount::AssetSettled,
-            amount: closed_amount,
-            post_date: now,
-            merchant: None,
-        }]
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Payment;
-
-impl Payment {
-    pub fn new(payment_amount: Decimal) -> Vec<Entry> {
-        let now = OffsetDateTime::now_utc();
-        let id = Uuid::new_v4();
-
-        vec![
-            Entry {
-                id,
-                debit_account: BookAccount::AssetCurrentLimit,
-                credit_account: BookAccount::LiabilityCurrentLimitCp,
-                amount: payment_amount,
-                post_date: now,
-                merchant: None,
-            },
-            Entry {
-                id,
-                debit_account: BookAccount::AssetTransitoryBank,
-                credit_account: BookAccount::LiabilityReceivable,
-                amount: payment_amount,
-                post_date: now,
-                merchant: None,
-            },
-        ]
-    }
+#[derive(Debug, PartialEq, Eq)]
+pub struct Card {
+    status: CardStatus,
+    max_limit: Decimal,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -166,12 +55,6 @@ pub struct Ledger {
     card: Card,
     pub accounts: HashMap<BookAccount, AccountInfo>,
     pub journal: Vec<Entry>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Card {
-    status: CardStatus,
-    max_limit: Decimal,
 }
 
 impl Ledger {
@@ -303,7 +186,7 @@ impl Ledger {
                 };
                 self.card = card;
 
-                let entries = CardIssued::new(max_limit);
+                let entries = movement::card_issued(max_limit);
                 self.process(entries)?;
 
                 Ok(CardStatus::Inactive)
@@ -334,7 +217,7 @@ impl Ledger {
                     return Err(error::Result::InsufficientLimit);
                 }
                 
-                let entries = Purchase::new(merchant, amount);
+                let entries = movement::purchase(merchant, amount);
                 match self.journal.last() {
                     Some(last_journal_entry) => {
                         let purchase_entry = entries.last().unwrap();
@@ -360,7 +243,7 @@ impl Ledger {
                 match self.accounts.get(&BookAccount::AssetSettled) {
                     Some(acc) => {
                         let bill_amount = acc.amount.abs();
-                        let entries = ClosedBill::new(bill_amount);
+                        let entries = movement::closed_bill(bill_amount);
                         self.process(entries)?;
                     }
                     None => return Err(error::Result::BookAccountNonExistent),
@@ -375,7 +258,7 @@ impl Ledger {
         match &self.card.status {
             CardStatus::NotIssued => Err(error::Result::CardNotIssued),
             _ => {
-                let entries = Payment::new(payment_amount);
+                let entries = movement::payment(payment_amount);
                 self.process(entries)?;
 
                 Ok(())
