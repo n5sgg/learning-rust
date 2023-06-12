@@ -1,8 +1,9 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
-use time::OffsetDateTime;
+use time::{ext::NumericalDuration, OffsetDateTime};
 use uuid::Uuid;
+use itertools::Itertools;
 
 use crate::error;
 use crate::movement;
@@ -90,7 +91,6 @@ impl Ledger {
                         off_balance: false,
                     },
                 ),
-                
                 (
                     BookAccount::AssetCurrentLimit,
                     AccountInfo {
@@ -144,7 +144,11 @@ impl Ledger {
     }
 
     pub fn get_balance(&self) -> Decimal {
-        self.accounts.get(&BookAccount::AssetCurrentLimit).unwrap().amount.abs()
+        self.accounts
+            .get(&BookAccount::AssetCurrentLimit)
+            .unwrap()
+            .amount
+            .abs()
     }
 
     pub fn process(&mut self, entries: Vec<Entry>) -> Result<(), error::Result> {
@@ -216,17 +220,33 @@ impl Ledger {
                 if balance < amount {
                     return Err(error::Result::InsufficientLimit);
                 }
-                
+
                 let entries = movement::purchase(merchant, amount);
                 match self.journal.last() {
                     Some(last_journal_entry) => {
                         let purchase_entry = entries.last().unwrap();
-                        if last_journal_entry.merchant == purchase_entry.merchant && last_journal_entry.amount == purchase_entry.amount {
+                        if last_journal_entry.merchant == purchase_entry.merchant
+                            && last_journal_entry.amount == purchase_entry.amount
+                        {
                             return Err(error::Result::DoubleTransaction);
                         }
-                    },
+
+                        let count = self.journal
+                            .iter()
+                            .filter(|e| {
+                                e.post_date
+                                    > OffsetDateTime::now_utc().checked_sub(2.minutes()).unwrap()
+                            })
+                            .map(|e| e.id)
+                            .unique()
+                            .count();
+                        if count >= 3 {
+                            return Err(error::Result::HighFrequencySmallInterval);
+                        }
+                    }
                     None => (),
                 };
+
                 self.process(entries)?;
 
                 Ok(())

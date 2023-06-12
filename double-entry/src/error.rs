@@ -8,7 +8,7 @@ pub enum Result {
     CardInactive,
     BookAccountNonExistent,
     DoubleTransaction,
-    // HighFrequencySmallInterval,
+    HighFrequencySmallInterval,
 }
 
 impl std::error::Error for Result {}
@@ -21,7 +21,7 @@ impl fmt::Display for Result {
             Result::CardInactive => write!(f, "card_inactive"),
             Result::BookAccountNonExistent => write!(f, "book_acount_nonexistent"),
             Result::DoubleTransaction => write!(f, "doubled_transaction"),
-            // Result::HighFrequencySmallInterval => write!(f, "high-frequency-small-interval"),
+            Result::HighFrequencySmallInterval => write!(f, "high_frequency_small_interval"),
         }
     }
 }
